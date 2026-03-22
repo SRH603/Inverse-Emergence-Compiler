@@ -1,0 +1,128 @@
+// EmergeLang PEG Grammar
+// A specification language for describing emergent behaviors
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
+
+// === Top-level ===
+program = { SOI ~ item* ~ EOI }
+item = { agent_type_decl | topology_decl | emerge_decl }
+
+// === Agent Type Declaration ===
+agent_type_decl = {
+    "agent_type" ~ ident ~ "{" ~
+        agent_body ~
+    "}"
+}
+agent_body = { agent_field* }
+agent_field = { state_field | observe_field | act_field }
+
+state_field = { "state" ~ ":" ~ "{" ~ field_list ~ "}" }
+observe_field = { "observe" ~ ":" ~ observe_func }
+act_field = { "act" ~ ":" ~ "{" ~ ident_list ~ "}" }
+
+observe_func = { ident ~ "(" ~ param_list? ~ ")" ~ "->" ~ type_expr }
+
+field_list = { field ~ ("," ~ field)* ~ ","? }
+field = { ident ~ ":" ~ type_expr }
+
+ident_list = { ident ~ ("," ~ ident)* ~ ","? }
+
+param_list = { param ~ ("," ~ param)* ~ ","? }
+param = { ident ~ ":" ~ type_expr }
+
+// === Topology Declaration ===
+topology_decl = {
+    "topology" ~ ident ~ "(" ~ param_list? ~ ")"
+}
+
+// === Emergence Specification ===
+emerge_decl = {
+    "emerge" ~ ident ~ "(" ~ param_list? ~ ")" ~ "{" ~
+        emerge_body ~
+    "}"
+}
+emerge_body = { emerge_clause+ }
+emerge_clause = { temporal_clause | fault_clause | converge_clause | invariant_clause }
+
+temporal_clause = {
+    temporal_op ~ ":" ~ property_expr
+}
+temporal_op = {
+    "eventually" ~ "globally"
+    | "eventually"
+    | "globally"
+    | "globally" ~ "eventually"
+}
+
+fault_clause = {
+    "forall" ~ ident ~ "in" ~ ident ~ ":" ~
+        "without" ~ "(" ~ ident ~ ")" ~ ":" ~ temporal_op ~ ":" ~ property_expr
+}
+
+converge_clause = {
+    "converge_within" ~ ":" ~ arith_expr ~ "steps"
+}
+
+invariant_clause = {
+    "invariant" ~ ":" ~ property_expr
+}
+
+// === Property Expressions ===
+property_expr = { property_or }
+property_or = { property_and ~ ("||" ~ property_and)* }
+property_and = { property_atom ~ ("&&" ~ property_atom)* }
+property_atom = {
+    "(" ~ property_expr ~ ")"
+    | comparison
+    | func_call
+    | "!" ~ property_atom
+}
+
+comparison = { arith_expr ~ comp_op ~ arith_expr }
+comp_op = { ">=" | "<=" | "==" | "!=" | ">" | "<" }
+
+// === Arithmetic Expressions ===
+arith_expr = { arith_term ~ ((add_op) ~ arith_term)* }
+arith_term = { arith_unary ~ ((mul_op) ~ arith_unary)* }
+arith_unary = { "-"? ~ arith_atom }
+arith_atom = {
+    "(" ~ arith_expr ~ ")"
+    | func_call
+    | set_comprehension
+    | float_lit
+    | int_lit
+    | qualified_ident
+}
+
+add_op = { "+" | "-" }
+mul_op = { "*" | "/" }
+
+func_call = { ident ~ "(" ~ arg_list? ~ ")" }
+arg_list = { arith_expr ~ ("," ~ arith_expr)* ~ ","? }
+
+set_comprehension = {
+    "{" ~ arith_expr ~ "for" ~ ident ~ "in" ~ ident ~ "}" |
+    "|" ~ ident ~ "|"
+}
+
+// === Types ===
+type_expr = {
+    "Set" ~ "<" ~ type_expr ~ ">"
+    | "Vec3"
+    | "Vec2"
+    | "Float"
+    | "Int"
+    | "Bool"
+    | "Nat"
+    | "Message"
+    | "Swarm" ~ "<" ~ ident ~ ">"
+    | "Region"
+    | ident
+}
+
+// === Identifiers and Literals ===
+qualified_ident = @{ ident ~ ("." ~ ident)* }
+ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+int_lit = @{ ASCII_DIGIT+ }
+float_lit = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }

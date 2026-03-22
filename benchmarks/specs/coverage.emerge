@@ -1,0 +1,27 @@
+// Spatial Coverage — Benchmark #2
+//
+// Goal: N agents self-organize to cover a region evenly.
+// Each agent observes its nearest neighbors and adjusts position.
+// Target: agents spread out to maximize coverage, no clustering.
+
+agent_type Drone {
+    state: { position: Vec2, sector: Int }
+    observe: neighbors_within(radius: Float) -> Set<Drone>
+    act: { move_to, adjust_sector }
+}
+
+topology KNearestGraph(k: Nat)
+
+emerge Coverage(drones: Swarm<Drone>) {
+    // Eventually, agents are spread across all sectors
+    eventually globally: coverage(drones)
+
+    // No two agents should occupy the same sector permanently
+    invariant: no_overlap(drones)
+
+    // Fault tolerance: coverage maintained if one drone fails
+    forall d in drones:
+        without(d): eventually globally: coverage(drones)
+
+    converge_within: 200 steps
+}

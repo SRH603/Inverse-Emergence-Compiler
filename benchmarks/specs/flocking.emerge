@@ -1,0 +1,27 @@
+// Flocking (Boids-like) — Benchmark #3
+//
+// Goal: N agents self-organize into a coherent flock.
+// Each agent follows local rules based on neighbor observations.
+// Target: agents align their directions and maintain formation.
+
+agent_type Bird {
+    state: { position: Vec2, heading: Int, speed: Float }
+    observe: neighbors_within(radius: Float) -> Set<Bird>
+    act: { turn, adjust_speed }
+}
+
+topology DynamicRadius(r: Float)
+
+emerge Flocking(birds: Swarm<Bird>) {
+    // Eventually, all birds align their heading
+    eventually globally: aligned(birds)
+
+    // The flock stays together (no fragmentation)
+    globally: formation(birds)
+
+    // Resilient: flock holds even if some birds leave
+    forall b in birds:
+        without(b): eventually globally: aligned(birds)
+
+    converge_within: 150 steps
+}

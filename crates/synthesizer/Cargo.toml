@@ -1,0 +1,15 @@
+[package]
+name = "synthesizer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+emergelang.workspace = true
+agent-model.workspace = true
+verifier.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+z3 = "0.12"

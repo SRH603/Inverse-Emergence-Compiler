@@ -1,0 +1,20 @@
+[package]
+name = "iec-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "iec"
+path = "src/main.rs"
+
+[dependencies]
+emergelang.workspace = true
+agent-model.workspace = true
+synthesizer.workspace = true
+verifier.workspace = true
+runtime.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,25 @@
+// Self-Healing Ring — Benchmark #4
+//
+// Goal: N agents maintain a ring topology. When a node fails,
+// the remaining agents self-repair the ring by re-linking.
+// Each agent only knows its two immediate neighbors.
+
+agent_type RingNode {
+    state: { id: Int, left_neighbor: Int, right_neighbor: Int, alive: Bool }
+    observe: check_neighbors() -> Int
+    act: { relink, heartbeat }
+}
+
+topology Ring()
+
+emerge SelfHealingRing(nodes: Swarm<RingNode>) {
+    // The ring is always connected (global invariant)
+    globally: ring_connected(nodes)
+
+    // After a node failure, the ring self-repairs
+    forall n in nodes:
+        without(n): eventually globally: ring_connected(nodes)
+
+    // Convergence: repair happens within bounded time
+    converge_within: 50 steps
+}

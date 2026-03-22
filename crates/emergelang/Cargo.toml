@@ -1,0 +1,10 @@
+[package]
+name = "emergelang"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+pest = "2.7"
+pest_derive = "2.7"
+serde.workspace = true
+thiserror.workspace = true

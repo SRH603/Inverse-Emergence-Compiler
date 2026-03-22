@@ -1,0 +1,36 @@
+[workspace]
+members = [
+    "crates/emergelang",
+    "crates/agent-model",
+    "crates/synthesizer",
+    "crates/verifier",
+    "crates/runtime",
+    "crates/iec-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Alan Yu"]
+
+[workspace.dependencies]
+# Shared dependencies across crates
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+rayon = "1.10"
+petgraph = "0.6"
+clap = { version = "4", features = ["derive"] }
+
+# Internal crates
+emergelang = { path = "crates/emergelang" }
+agent-model = { path = "crates/agent-model" }
+synthesizer = { path = "crates/synthesizer" }
+verifier = { path = "crates/verifier" }
+runtime = { path = "crates/runtime" }

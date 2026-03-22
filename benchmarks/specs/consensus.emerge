@@ -1,0 +1,24 @@
+// Symmetric Consensus — Benchmark #1
+//
+// Goal: N agents with binary values self-organize to agree on a single value.
+// Each agent can only observe the majority value among its neighbors.
+
+agent_type Node {
+    state: { value: Int, decided: Bool }
+    observe: neighbors_majority(radius: Nat) -> Int
+    act: { update_value }
+}
+
+topology Complete()
+
+emerge Consensus(agents: Swarm<Node>) {
+    // Safety: once all agents agree, they stay in agreement
+    eventually globally: all_agree(agents)
+
+    // Fault tolerance: even if one agent is removed, consensus still holds
+    forall d in agents:
+        without(d): eventually globally: all_agree(agents)
+
+    // Convergence bound
+    converge_within: 100 * |agents| steps
+}
