@@ -340,9 +340,9 @@ fn cmd_demo() -> Result<()> {
         value_range: 2,
         max_iterations: 30,
         tests_per_iteration: 50,
-        min_success_rate: 0.85,
-        initial_unroll_depth: 3,
-        max_unroll_depth: 10,
+        min_success_rate: 0.90,
+        initial_unroll_depth: 5,
+        max_unroll_depth: 12,
     };
 
     let result = synthesizer::cegis::synthesize_cegis(&cegis_config, move |trace| {

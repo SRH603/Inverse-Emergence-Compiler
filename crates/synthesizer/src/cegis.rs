@@ -206,7 +206,7 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
                     fst.set_output(s as u32, out);
                 }
 
-                // Test the FST
+                // Test the FST via full simulation
                 let rate = test_fst_rate(&fst, config, &checker);
                 debug!("Candidate FST success rate: {:.1}%", rate * 100.0);
 
@@ -216,7 +216,6 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
                     stall_count = 0;
                 } else {
                     stall_count += 1;
-                    // If no improvement for 3 iterations, increase unrolling depth
                     if stall_count >= 3
                         && current_unroll_depth < config.max_unroll_depth
                     {
@@ -245,15 +244,30 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
                     };
                 }
 
-                // Find counterexamples
-                let new_cex = find_counterexamples(&fst, config, &checker);
-                if new_cex.is_empty() {
-                    info!("No more counterexamples found but rate below threshold");
-                    // Try with more random tests
-                    continue;
+                // FST failed simulation — block this exact solution and try again.
+                // Add constraint: not all transitions are the same as current solution.
+                let mut exclude_terms = Vec::new();
+                for s in 0..ns {
+                    for o in 0..no {
+                        if let Some((next, act)) = fst.transitions.get(&(s as u32, o as u32)) {
+                            let ne_next = next_state_vars[s][o]
+                                ._eq(&Int::from_i64(&ctx, *next as i64))
+                                .not();
+                            let ne_act = action_vars[s][o]
+                                ._eq(&Int::from_i64(&ctx, *act as i64))
+                                .not();
+                            exclude_terms.push(ne_next);
+                            exclude_terms.push(ne_act);
+                        }
+                    }
+                }
+                let exclude_refs: Vec<&z3::ast::Bool> = exclude_terms.iter().collect();
+                if !exclude_refs.is_empty() {
+                    solver.assert(&z3::ast::Bool::or(&ctx, &exclude_refs));
                 }
 
-                // Add counterexample constraints
+                // Also add counterexample constraints from failing initial conditions
+                let new_cex = find_counterexamples(&fst, config, &checker);
                 for cex in &new_cex {
                     add_counterexample_constraint(
                         &ctx,
@@ -268,7 +282,7 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
                 }
 
                 debug!(
-                    "Added {} counterexamples (total: {})",
+                    "Blocked solution, added {} counterexamples (total: {})",
                     new_cex.len(),
                     counterexamples.len()
                 );
@@ -370,24 +384,39 @@ fn add_counterexample_constraint(
         agent_states.push(next_states);
     }
 
-    // Final constraint: at the last step, all agents should have the same output
-    let last = &agent_states[unroll_steps];
-    if n >= 2 {
-        // Get output of first agent
-        let mut out0 = Int::from_i64(ctx, 0);
-        for s in (0..ns).rev() {
-            let is_state = last[0]._eq(&Int::from_i64(ctx, s as i64));
-            out0 = is_state.ite(&output_vars[s], &out0);
+    // Final constraints: require consensus AND stability (fixed point).
+    // 1. At the last step, all agents have the same output value.
+    // 2. The second-to-last step also has the same output (stability / no oscillation).
+    // 3. All agents are in the same state at the last two steps (fixed point).
+    for check_step_idx in [unroll_steps.saturating_sub(1), unroll_steps] {
+        if check_step_idx >= agent_states.len() {
+            continue;
         }
-
-        // All other agents must have same output
-        for i in 1..n {
-            let mut out_i = Int::from_i64(ctx, 0);
+        let step_states = &agent_states[check_step_idx];
+        if n >= 2 {
+            let mut out0 = Int::from_i64(ctx, 0);
             for s in (0..ns).rev() {
-                let is_state = last[i]._eq(&Int::from_i64(ctx, s as i64));
-                out_i = is_state.ite(&output_vars[s], &out_i);
+                let is_state = step_states[0]._eq(&Int::from_i64(ctx, s as i64));
+                out0 = is_state.ite(&output_vars[s], &out0);
             }
-            solver.assert(&out0._eq(&out_i));
+
+            for i in 1..n {
+                let mut out_i = Int::from_i64(ctx, 0);
+                for s in (0..ns).rev() {
+                    let is_state = step_states[i]._eq(&Int::from_i64(ctx, s as i64));
+                    out_i = is_state.ite(&output_vars[s], &out_i);
+                }
+                solver.assert(&out0._eq(&out_i));
+            }
+        }
+    }
+
+    // 3. Fixed-point constraint: each agent's state at last step == state at second-to-last step.
+    if unroll_steps >= 2 {
+        let second_last = &agent_states[unroll_steps - 1];
+        let last = &agent_states[unroll_steps];
+        for i in 0..n {
+            solver.assert(&second_last[i]._eq(&last[i]));
         }
     }
 }

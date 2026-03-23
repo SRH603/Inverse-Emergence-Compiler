@@ -62,11 +62,29 @@ pub struct Trace {
 
 impl Trace {
     /// Check if consensus is eventually reached and maintained (eventually globally all_agree).
+    ///
+    /// Requires that:
+    /// 1. All agents agree on the same value at some step.
+    /// 2. At ALL subsequent steps (at least 2 more), they still agree on the SAME value.
     pub fn eventually_globally_agree(&self) -> bool {
+        // Need at least 3 snapshots remaining to confirm stability
+        if self.snapshots.len() < 3 {
+            return false;
+        }
         for (i, snap) in self.snapshots.iter().enumerate() {
+            // Need at least 2 subsequent snapshots to confirm stability
+            if i + 2 >= self.snapshots.len() {
+                break;
+            }
             if snap.all_agree() {
-                // Check that all subsequent snapshots also agree
-                if self.snapshots[i..].iter().all(|s| s.all_agree()) {
+                let consensus_value = snap.agents[0].value;
+                let stable = self.snapshots[i..].iter().all(|s| {
+                    s.all_agree()
+                        && s.agents
+                            .first()
+                            .map_or(true, |a| a.value == consensus_value)
+                });
+                if stable {
                     return true;
                 }
             }
@@ -74,15 +92,25 @@ impl Trace {
         false
     }
 
-    /// Find the first step at which consensus is reached (and maintained).
+    /// Find the first step at which stable consensus is reached (same value maintained).
     pub fn convergence_step(&self) -> Option<u64> {
         for (i, snap) in self.snapshots.iter().enumerate() {
-            if snap.all_agree() && self.snapshots[i..].iter().all(|s| s.all_agree()) {
-                return Some(snap.step);
+            if snap.all_agree() {
+                let consensus_value = snap.agents[0].value;
+                let stable = self.snapshots[i..].iter().all(|s| {
+                    s.all_agree()
+                        && s.agents
+                            .first()
+                            .map_or(true, |a| a.value == consensus_value)
+                });
+                if stable {
+                    return Some(snap.step);
+                }
             }
         }
         None
     }
+
 }
 
 /// The observation function: how an agent perceives its neighbors.
@@ -162,9 +190,10 @@ pub fn simulate(
             agents: agents.clone(),
         });
 
-        // Early termination if consensus reached
-        if snapshots.last().unwrap().all_agree() {
-            // Run a few more steps to check stability
+        // Early termination if consensus reached AND stable (value doesn't change)
+        let last_snap = snapshots.last().unwrap();
+        if last_snap.all_agree() {
+            let consensus_value = last_snap.agents[0].value;
             let mut stable = true;
             for extra in 1..=5 {
                 let mut extra_agents = agents.clone();
@@ -177,13 +206,16 @@ pub fn simulate(
                             fst.get_output(next_state).unwrap_or(next_state as i64);
                     }
                 }
-                let extra_snap = GlobalSnapshot {
-                    step: step + extra,
-                    agents: extra_agents.clone(),
-                };
-                if !extra_snap.all_agree()
-                {
+                // Check: still all agree on the SAME value (not oscillating)
+                let still_agree = extra_agents.iter().all(|a| a.value == consensus_value);
+                if !still_agree {
                     stable = false;
+                    // Record this step so the trace shows the oscillation
+                    agents = extra_agents;
+                    snapshots.push(GlobalSnapshot {
+                        step: step + extra,
+                        agents: agents.clone(),
+                    });
                     break;
                 }
                 agents = extra_agents;
