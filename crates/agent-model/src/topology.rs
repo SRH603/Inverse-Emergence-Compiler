@@ -70,12 +70,21 @@ impl Topology {
                     graph.add_edge(nodes[0], nodes[i], ());
                 }
             }
-            Topology::RandomGeometric { .. } => {
-                // For now, fall back to complete graph
-                // TODO: use actual 2D positions with RNG
+            Topology::RandomGeometric { radius } => {
+                // Place agents uniformly at random in [0,1]^2,
+                // connect if distance <= radius.
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let positions: Vec<(f64, f64)> = (0..n)
+                    .map(|_| (rng.gen::<f64>(), rng.gen::<f64>()))
+                    .collect();
                 for i in 0..n {
                     for j in (i + 1)..n {
-                        graph.add_edge(nodes[i], nodes[j], ());
+                        let dx = positions[i].0 - positions[j].0;
+                        let dy = positions[i].1 - positions[j].1;
+                        if (dx * dx + dy * dy).sqrt() <= *radius {
+                            graph.add_edge(nodes[i], nodes[j], ());
+                        }
                     }
                 }
             }

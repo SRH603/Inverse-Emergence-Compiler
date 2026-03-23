@@ -1,6 +1,20 @@
-[env]
-BINDGEN_EXTRA_CLANG_ARGS = "-I/opt/homebrew/include"
-Z3_SYS_Z3_HEADER = "/opt/homebrew/include/z3.h"
+# Z3 library configuration.
+#
+# macOS (Homebrew): `brew install z3`
+# Linux (apt): `sudo apt install libz3-dev`
+# Linux (dnf): `sudo dnf install z3-devel`
+#
+# If Z3 is installed elsewhere, override with environment variables:
+#   BINDGEN_EXTRA_CLANG_ARGS="-I/path/to/z3/include"
+#   Z3_SYS_Z3_HEADER="/path/to/z3.h"
+#   LIBRARY_PATH="/path/to/z3/lib"
 
-[build]
-rustflags = ["-L", "/opt/homebrew/lib"]
+[env]
+BINDGEN_EXTRA_CLANG_ARGS = { value = "-I/opt/homebrew/include -I/usr/local/include -I/usr/include", force = false }
+Z3_SYS_Z3_HEADER = { value = "/opt/homebrew/include/z3.h", force = false }
+
+[target.'cfg(target_os = "macos")']
+rustflags = ["-L", "/opt/homebrew/lib", "-L", "/usr/local/lib"]
+
+[target.'cfg(target_os = "linux")']
+rustflags = ["-L", "/usr/lib", "-L", "/usr/local/lib", "-L", "/usr/lib/x86_64-linux-gnu"]

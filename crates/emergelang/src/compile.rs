@@ -176,7 +176,8 @@ fn compile_measure_expr(expr: &ast::ArithExpr) -> etl::MeasureExpr {
     }
 }
 
-/// Try to evaluate a constant arithmetic expression.
+/// Try to evaluate a constant arithmetic expression. Returns `None` for
+/// expressions containing variables or other non-constant terms.
 fn eval_const_arith(expr: &ast::ArithExpr) -> Option<f64> {
     match expr {
         ast::ArithExpr::IntLit(i) => Some(*i as f64),
@@ -193,5 +194,76 @@ fn eval_const_arith(expr: &ast::ArithExpr) -> Option<f64> {
         }
         ast::ArithExpr::Neg(inner) => eval_const_arith(inner).map(|v| -v),
         _ => None, // non-constant
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compile_consensus_to_etl() {
+        let src = r#"
+            emerge Consensus(agents: Swarm<Node>) {
+                eventually globally: all_agree(agents)
+                converge_within: 100 steps
+            }
+        "#;
+        let program = crate::parse(src).unwrap();
+        let specs = compile_to_etl(&program);
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].name, "Consensus");
+        assert_eq!(specs[0].liveness.len(), 1);
+        assert_eq!(specs[0].convergence_bound, Some(100));
+    }
+
+    #[test]
+    fn test_compile_fault_tolerance() {
+        let src = r#"
+            emerge FT(agents: Swarm<Node>) {
+                forall d in agents:
+                    without(d): eventually globally: all_agree(agents)
+            }
+        "#;
+        let program = crate::parse(src).unwrap();
+        let specs = compile_to_etl(&program);
+        assert_eq!(specs[0].fault_tolerance.len(), 1);
+        match &specs[0].fault_tolerance[0] {
+            EtlFormula::RobustUnderRemoval { max_removals, .. } => {
+                assert_eq!(*max_removals, 1);
+            }
+            _ => panic!("expected RobustUnderRemoval"),
+        }
+    }
+
+    #[test]
+    fn test_compile_invariant() {
+        let src = r#"
+            emerge Safe(agents: Swarm<Node>) {
+                invariant: no_deadlock(agents)
+            }
+        "#;
+        let program = crate::parse(src).unwrap();
+        let specs = compile_to_etl(&program);
+        assert_eq!(specs[0].safety.len(), 1);
+    }
+
+    #[test]
+    fn test_eval_const_arith() {
+        assert_eq!(eval_const_arith(&ast::ArithExpr::IntLit(42)), Some(42.0));
+        assert_eq!(eval_const_arith(&ast::ArithExpr::FloatLit(3.14)), Some(3.14));
+        assert_eq!(
+            eval_const_arith(&ast::ArithExpr::BinOp(
+                Box::new(ast::ArithExpr::IntLit(10)),
+                ast::ArithOp::Mul,
+                Box::new(ast::ArithExpr::IntLit(5)),
+            )),
+            Some(50.0)
+        );
+        // Variable is non-constant
+        assert_eq!(
+            eval_const_arith(&ast::ArithExpr::Var("x".into())),
+            None
+        );
     }
 }

@@ -312,4 +312,60 @@ mod tests {
         // Should see all 16 FSTs (the last one before advance returns false)
         assert_eq!(count, 16);
     }
+
+    #[test]
+    fn test_degenerate_single_state() {
+        let mut fst = Fst::new("single", 1, 2, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.add_transition(0, 1, 0, 0);
+        fst.set_output(0, 0);
+        assert!(fst.is_degenerate());
+    }
+
+    #[test]
+    fn test_degenerate_ignores_obs() {
+        let mut fst = Fst::new("ignores", 2, 2, 1);
+        // Both observations lead to same next state
+        fst.add_transition(0, 0, 1, 0);
+        fst.add_transition(0, 1, 1, 0);
+        fst.add_transition(1, 0, 0, 0);
+        fst.add_transition(1, 1, 0, 0);
+        fst.set_output(0, 0);
+        fst.set_output(1, 1);
+        assert!(fst.is_degenerate());
+    }
+
+    #[test]
+    fn test_degenerate_same_output() {
+        let mut fst = Fst::new("same_out", 2, 2, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.add_transition(0, 1, 1, 0);
+        fst.add_transition(1, 0, 0, 0);
+        fst.add_transition(1, 1, 1, 0);
+        fst.set_output(0, 42);
+        fst.set_output(1, 42); // same output for all states
+        assert!(fst.is_degenerate());
+    }
+
+    #[test]
+    fn test_non_degenerate() {
+        let mut fst = Fst::new("good", 2, 2, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.add_transition(0, 1, 1, 0);
+        fst.add_transition(1, 0, 0, 0);
+        fst.add_transition(1, 1, 1, 0);
+        fst.set_output(0, 0);
+        fst.set_output(1, 1);
+        assert!(!fst.is_degenerate());
+    }
+
+    #[test]
+    fn test_preserves_majority() {
+        let mut fst = Fst::new("good", 2, 2, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.add_transition(0, 1, 1, 0);
+        fst.set_output(0, 0);
+        fst.set_output(1, 1);
+        assert!(fst.preserves_majority());
+    }
 }

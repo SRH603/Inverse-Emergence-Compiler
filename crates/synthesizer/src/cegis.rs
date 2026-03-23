@@ -161,7 +161,13 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
         // Solve
         match solver.check(&[]) {
             SatResult::Sat => {
-                let model = solver.get_model().unwrap();
+                let model = match solver.get_model() {
+                    Some(m) => m,
+                    None => {
+                        warn!("Z3 returned SAT but no model available");
+                        continue;
+                    }
+                };
 
                 // Extract FST from Z3 model
                 let mut fst = Fst::new(

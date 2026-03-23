@@ -149,3 +149,109 @@ fn check_never_value(trace: &Trace, forbidden: i64) -> MonitorResult {
         details: format!("Value {} never appeared", forbidden),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_model::interpreter::{AgentState, GlobalSnapshot, Trace};
+
+    fn make_trace(steps: Vec<Vec<i64>>) -> Trace {
+        let snapshots = steps
+            .into_iter()
+            .enumerate()
+            .map(|(step, values)| GlobalSnapshot {
+                step: step as u64,
+                agents: values
+                    .into_iter()
+                    .enumerate()
+                    .map(|(id, value)| AgentState {
+                        id,
+                        fst_state: value.unsigned_abs() as u32,
+                        value,
+                    })
+                    .collect(),
+            })
+            .collect();
+        Trace { snapshots }
+    }
+
+    #[test]
+    fn test_all_agree_satisfied() {
+        let trace = make_trace(vec![
+            vec![0, 1, 0],
+            vec![0, 0, 0],
+            vec![0, 0, 0],
+        ]);
+        let result = check_property(&trace, &MonitorProperty::AllAgree);
+        assert!(result.satisfied);
+        assert_eq!(result.relevant_step, Some(1));
+    }
+
+    #[test]
+    fn test_all_agree_not_satisfied() {
+        let trace = make_trace(vec![
+            vec![0, 1, 0],
+            vec![0, 1, 0],
+            vec![1, 0, 1],
+        ]);
+        let result = check_property(&trace, &MonitorProperty::AllAgree);
+        assert!(!result.satisfied);
+    }
+
+    #[test]
+    fn test_fraction_agree() {
+        let trace = make_trace(vec![vec![0, 0, 0, 1]]);
+        let result = check_property(&trace, &MonitorProperty::FractionAgree(0.7));
+        assert!(result.satisfied); // 75% have value 0
+    }
+
+    #[test]
+    fn test_fraction_agree_fails() {
+        let trace = make_trace(vec![vec![0, 1, 2, 3]]);
+        let result = check_property(&trace, &MonitorProperty::FractionAgree(0.5));
+        assert!(!result.satisfied); // only 25% per value
+    }
+
+    #[test]
+    fn test_stable() {
+        let trace = make_trace(vec![
+            vec![0, 1],
+            vec![1, 1],
+            vec![1, 1],
+            vec![1, 1],
+        ]);
+        let result = check_property(&trace, &MonitorProperty::Stable { window: 2 });
+        assert!(result.satisfied);
+    }
+
+    #[test]
+    fn test_never_value_satisfied() {
+        let trace = make_trace(vec![vec![0, 1, 2], vec![0, 1, 2]]);
+        let result = check_property(&trace, &MonitorProperty::NeverValue(5));
+        assert!(result.satisfied);
+    }
+
+    #[test]
+    fn test_never_value_violated() {
+        let trace = make_trace(vec![vec![0, 1, 5]]);
+        let result = check_property(&trace, &MonitorProperty::NeverValue(5));
+        assert!(!result.satisfied);
+        assert_eq!(result.relevant_step, Some(0));
+    }
+
+    #[test]
+    fn test_empty_trace() {
+        let trace = Trace {
+            snapshots: Vec::new(),
+        };
+        let result = check_property(&trace, &MonitorProperty::AllAgree);
+        assert!(!result.satisfied);
+    }
+
+    #[test]
+    fn test_single_agent() {
+        let trace = make_trace(vec![vec![42], vec![42]]);
+        let result = check_property(&trace, &MonitorProperty::AllAgree);
+        assert!(result.satisfied);
+    }
+}

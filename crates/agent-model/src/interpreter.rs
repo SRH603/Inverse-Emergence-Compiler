@@ -225,9 +225,7 @@ mod tests {
 
     #[test]
     fn test_majority_consensus() {
-        // Simple majority rule: adopt the majority value of neighbors
         let mut fst = Fst::new("majority", 2, 2, 1);
-        // If observation is 0 (majority of neighbors have value 0), go to state 0
         fst.add_transition(0, 0, 0, 0);
         fst.add_transition(0, 1, 1, 0);
         fst.add_transition(1, 0, 0, 0);
@@ -236,8 +234,61 @@ mod tests {
         fst.set_output(1, 1);
 
         let topology = Topology::Complete;
-        // 2 agents with value 0, 1 with value 1 → should converge to 0
         let trace = simulate(&fst, 3, &topology, &[0, 0, 1], 20);
         assert!(trace.eventually_globally_agree());
+    }
+
+    #[test]
+    fn test_single_agent() {
+        let mut fst = Fst::new("single", 2, 2, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.add_transition(0, 1, 0, 0);
+        fst.add_transition(1, 0, 1, 0);
+        fst.add_transition(1, 1, 1, 0);
+        fst.set_output(0, 0);
+        fst.set_output(1, 1);
+
+        let trace = simulate(&fst, 1, &Topology::Complete, &[0], 5);
+        assert!(trace.snapshots[0].all_agree()); // single agent always agrees
+    }
+
+    #[test]
+    fn test_ring_topology() {
+        let mut fst = Fst::new("majority", 2, 2, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.add_transition(0, 1, 1, 0);
+        fst.add_transition(1, 0, 0, 0);
+        fst.add_transition(1, 1, 1, 0);
+        fst.set_output(0, 0);
+        fst.set_output(1, 1);
+
+        let trace = simulate(&fst, 5, &Topology::Ring, &[0, 0, 0, 0, 1], 30);
+        // Should still converge on ring topology
+        assert!(trace.eventually_globally_agree());
+    }
+
+    #[test]
+    fn test_convergence_step() {
+        let mut fst = Fst::new("trivial", 1, 1, 1);
+        fst.add_transition(0, 0, 0, 0);
+        fst.set_output(0, 0);
+
+        let trace = simulate(&fst, 3, &Topology::Complete, &[0, 0, 0], 5);
+        assert_eq!(trace.convergence_step(), Some(0));
+    }
+
+    #[test]
+    fn test_global_snapshot_majority() {
+        let snap = GlobalSnapshot {
+            step: 0,
+            agents: vec![
+                AgentState { id: 0, fst_state: 0, value: 1 },
+                AgentState { id: 1, fst_state: 0, value: 1 },
+                AgentState { id: 2, fst_state: 0, value: 0 },
+            ],
+        };
+        assert_eq!(snap.majority_value(), Some(1));
+        assert!(!snap.all_agree());
+        assert!((snap.fraction_with_value(1) - 2.0 / 3.0).abs() < 1e-10);
     }
 }
