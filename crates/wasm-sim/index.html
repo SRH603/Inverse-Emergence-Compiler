@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Inverse Emergence Compiler — Simulation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0f0f23; color: #ccc; font-family: 'SF Mono', monospace; }
+        .container { display: flex; height: 100vh; }
+        .sidebar { width: 320px; padding: 20px; background: #16162e; overflow-y: auto; }
+        .main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        h1 { font-size: 16px; color: #e94560; margin-bottom: 16px; }
+        h2 { font-size: 13px; color: #888; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+        canvas { border: 1px solid #333; border-radius: 8px; }
+        textarea { width: 100%; height: 120px; background: #1a1a3e; color: #0f3; border: 1px solid #333;
+                   border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; resize: vertical; }
+        select, input, button { width: 100%; padding: 8px; margin: 4px 0; background: #1a1a3e;
+                                 color: #ccc; border: 1px solid #333; border-radius: 4px; font-family: monospace; }
+        button { cursor: pointer; background: #e94560; color: white; border: none; font-weight: bold; }
+        button:hover { background: #c73e54; }
+        button.secondary { background: #0f3460; }
+        button.secondary:hover { background: #0d2b4e; }
+        .stats { background: #1a1a3e; padding: 12px; border-radius: 4px; font-size: 12px; line-height: 1.8; }
+        .stats .label { color: #888; }
+        .stats .value { color: #16c79a; float: right; }
+        label { font-size: 12px; color: #888; display: block; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>Inverse Emergence Compiler</h1>
+
+            <h2>FST Rules (JSON)</h2>
+            <textarea id="fst-input">{
+  "name": "majority_consensus",
+  "num_states": 2,
+  "num_observations": 2,
+  "num_actions": 1,
+  "transitions": {
+    "0,0": [0, 0],
+    "0,1": [1, 0],
+    "1,0": [0, 0],
+    "1,1": [1, 0]
+  },
+  "output": {
+    "0": 0,
+    "1": 1
+  }
+}</textarea>
+
+            <h2>Configuration</h2>
+            <label>Agents</label>
+            <input type="number" id="num-agents" value="12" min="2" max="100">
+            <label>Topology</label>
+            <select id="topology">
+                <option value="complete">Complete</option>
+                <option value="ring">Ring</option>
+                <option value="star">Star</option>
+                <option value="grid">Grid</option>
+            </select>
+            <label>Speed (ms/step)</label>
+            <input type="number" id="speed" value="300" min="50" max="2000" step="50">
+
+            <h2>Controls</h2>
+            <button id="btn-start">Start</button>
+            <button id="btn-step" class="secondary">Step</button>
+            <button id="btn-reset" class="secondary">Reset</button>
+            <button id="btn-fault" class="secondary">Remove Random Agent</button>
+
+            <h2>Status</h2>
+            <div class="stats" id="stats">
+                <div><span class="label">Step</span><span class="value" id="stat-step">0</span></div>
+                <div><span class="label">Agents</span><span class="value" id="stat-agents">0</span></div>
+                <div><span class="label">Consensus</span><span class="value" id="stat-consensus">—</span></div>
+            </div>
+        </div>
+        <div class="main">
+            <canvas id="canvas" width="700" height="700"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        // This loads the WASM module built by wasm-pack
+        // Run: wasm-pack build --target web crates/wasm-sim
+        import init, { Simulation } from './pkg/wasm_sim.js';
+
+        let sim = null;
+        let running = false;
+        let intervalId = null;
+
+        async function start() {
+            await init();
+
+            document.getElementById('btn-start').addEventListener('click', toggleRun);
+            document.getElementById('btn-step').addEventListener('click', doStep);
+            document.getElementById('btn-reset').addEventListener('click', resetSim);
+            document.getElementById('btn-fault').addEventListener('click', removeFault);
+
+            resetSim();
+        }
+
+        function resetSim() {
+            stopRun();
+            const fstJson = document.getElementById('fst-input').value;
+            const numAgents = parseInt(document.getElementById('num-agents').value);
+            const topology = document.getElementById('topology').value;
+            const canvas = document.getElementById('canvas');
+
+            try {
+                sim = new Simulation(fstJson, numAgents, topology, canvas.width, canvas.height);
+                render();
+            } catch (e) {
+                alert('Error: ' + e);
+            }
+        }
+
+        function doStep() {
+            if (!sim) return;
+            sim.step();
+            render();
+        }
+
+        function toggleRun() {
+            if (running) {
+                stopRun();
+            } else {
+                running = true;
+                document.getElementById('btn-start').textContent = 'Pause';
+                const speed = parseInt(document.getElementById('speed').value);
+                intervalId = setInterval(() => {
+                    doStep();
+                    if (sim && sim.all_agree()) {
+                        stopRun();
+                    }
+                }, speed);
+            }
+        }
+
+        function stopRun() {
+            running = false;
+            document.getElementById('btn-start').textContent = 'Start';
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+        }
+
+        function removeFault() {
+            if (!sim || sim.num_agents() <= 2) return;
+            const id = Math.floor(Math.random() * sim.num_agents());
+            sim.remove_agent(id);
+            render();
+        }
+
+        function render() {
+            if (!sim) return;
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            sim.render(ctx);
+
+            document.getElementById('stat-step').textContent = sim.current_step();
+            document.getElementById('stat-agents').textContent = sim.num_agents();
+            document.getElementById('stat-consensus').textContent = sim.all_agree() ? 'YES' : 'NO';
+            document.getElementById('stat-consensus').style.color = sim.all_agree() ? '#16c79a' : '#e94560';
+        }
+
+        start();
+    </script>
+</body>
+</html>

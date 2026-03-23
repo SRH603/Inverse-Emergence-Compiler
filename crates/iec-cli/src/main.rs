@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use miette::{miette, LabeledSpan, Report};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -76,8 +77,14 @@ fn main() -> Result<()> {
 
 fn cmd_parse(file: &str) -> Result<()> {
     let source = std::fs::read_to_string(file)?;
-    let program = emergelang::parse(&source)
-        .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+    let program = match emergelang::parse(&source) {
+        Ok(p) => p,
+        Err(e) => {
+            let report = make_parse_diagnostic(file, &source, &e);
+            eprintln!("{:?}", report);
+            return Err(anyhow::anyhow!("Parse failed"));
+        }
+    };
 
     println!("Parsed {} items:", program.items.len());
     for item in &program.items {
@@ -119,8 +126,14 @@ fn cmd_parse(file: &str) -> Result<()> {
 
 fn cmd_synthesize(file: &str, max_states: u32, agents: usize, min_rate: f64, engine: SynthesisEngine) -> Result<()> {
     let source = std::fs::read_to_string(file)?;
-    let program = emergelang::parse(&source)
-        .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+    let program = match emergelang::parse(&source) {
+        Ok(p) => p,
+        Err(e) => {
+            let report = make_parse_diagnostic(file, &source, &e);
+            eprintln!("{:?}", report);
+            return Err(anyhow::anyhow!("Parse failed"));
+        }
+    };
 
     // Find the emerge declaration and compile properties
     let emerge_decl = program.items.iter().find_map(|i| match i {
@@ -176,6 +189,8 @@ fn cmd_synthesize(file: &str, max_states: u32, agents: usize, min_rate: f64, eng
                 max_iterations: 50,
                 tests_per_iteration: 100,
                 min_success_rate: min_rate,
+                initial_unroll_depth: 3,
+                max_unroll_depth: 10,
             };
             let result = synthesizer::cegis::synthesize_cegis(&config, checker);
             let info = format!(
@@ -326,6 +341,8 @@ fn cmd_demo() -> Result<()> {
         max_iterations: 30,
         tests_per_iteration: 50,
         min_success_rate: 0.85,
+        initial_unroll_depth: 3,
+        max_unroll_depth: 10,
     };
 
     let result = synthesizer::cegis::synthesize_cegis(&cegis_config, move |trace| {
@@ -410,4 +427,75 @@ fn cmd_demo() -> Result<()> {
 
     println!("\n=== Demo Complete ===");
     Ok(())
+}
+
+/// Create a pretty miette diagnostic from a parse error.
+fn make_parse_diagnostic(
+    filename: &str,
+    source: &str,
+    error: &emergelang::parser::ParseError,
+) -> Report {
+    match error {
+        emergelang::parser::ParseError::Grammar(msg) => {
+            // Try to extract line/column from pest error message
+            if let Some(offset) = find_error_offset(msg, source) {
+                miette!(
+                    labels = vec![LabeledSpan::at(offset..offset + 1, "parse error here")],
+                    help = "check EmergeLang syntax",
+                    "Failed to parse {}",
+                    filename,
+                )
+                .with_source_code(source.to_string())
+            } else {
+                miette!("Failed to parse {}: {}", filename, msg)
+            }
+        }
+        emergelang::parser::ParseError::Unexpected(msg) => {
+            miette!(
+                help = "this may indicate a malformed specification",
+                "Unexpected structure in {}: {}",
+                filename,
+                msg
+            )
+        }
+    }
+}
+
+/// Try to extract byte offset from a pest error message containing line/col info.
+fn find_error_offset(msg: &str, source: &str) -> Option<usize> {
+    // Pest errors look like: " --> 3:5" or "at line 3, column 5"
+    let re_arrow = regex_lite::Regex::new(r"-->\s*(\d+):(\d+)").ok()?;
+    if let Some(caps) = re_arrow.captures(msg) {
+        let line: usize = caps.get(1)?.as_str().parse().ok()?;
+        let col: usize = caps.get(2)?.as_str().parse().ok()?;
+        return line_col_to_offset(source, line, col);
+    }
+    None
+}
+
+fn line_col_to_offset(source: &str, line: usize, col: usize) -> Option<usize> {
+    let mut current_line = 1;
+    let mut offset = 0;
+    for ch in source.chars() {
+        if current_line == line {
+            if col <= 1 {
+                return Some(offset);
+            }
+            // Walk col characters
+            let mut c = 1;
+            for ch2 in source[offset..].chars() {
+                if c >= col {
+                    return Some(offset);
+                }
+                offset += ch2.len_utf8();
+                c += 1;
+            }
+            return Some(offset);
+        }
+        if ch == '\n' {
+            current_line += 1;
+        }
+        offset += ch.len_utf8();
+    }
+    None
 }

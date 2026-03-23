@@ -43,6 +43,11 @@ pub struct CegisConfig {
     pub tests_per_iteration: u32,
     /// Minimum success rate to accept.
     pub min_success_rate: f64,
+    /// Initial unrolling depth for counterexample constraints.
+    /// Automatically increases when shallow unrolling can't distinguish solutions.
+    pub initial_unroll_depth: u32,
+    /// Maximum unrolling depth.
+    pub max_unroll_depth: u32,
 }
 
 impl Default for CegisConfig {
@@ -58,6 +63,8 @@ impl Default for CegisConfig {
             max_iterations: 50,
             tests_per_iteration: 100,
             min_success_rate: 0.95,
+            initial_unroll_depth: 3,
+            max_unroll_depth: 10,
         }
     }
 }
@@ -154,6 +161,8 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
     let mut counterexamples: Vec<Vec<i64>> = Vec::new();
     let mut best_fst: Option<Fst> = None;
     let mut best_rate = 0.0;
+    let mut current_unroll_depth = config.initial_unroll_depth;
+    let mut stall_count = 0u32;
 
     for iteration in 0..config.max_iterations {
         debug!("CEGIS iteration {}", iteration);
@@ -204,6 +213,21 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
                 if rate > best_rate {
                     best_rate = rate;
                     best_fst = Some(fst.clone());
+                    stall_count = 0;
+                } else {
+                    stall_count += 1;
+                    // If no improvement for 3 iterations, increase unrolling depth
+                    if stall_count >= 3
+                        && current_unroll_depth < config.max_unroll_depth
+                    {
+                        current_unroll_depth += 2;
+                        stall_count = 0;
+                        info!(
+                            "Increasing unroll depth to {} (rate stalled at {:.1}%)",
+                            current_unroll_depth,
+                            best_rate * 100.0
+                        );
+                    }
                 }
 
                 if rate >= config.min_success_rate {
@@ -238,6 +262,7 @@ pub fn synthesize_cegis(config: &CegisConfig, checker: impl Fn(&Trace) -> bool) 
                         &output_vars,
                         config,
                         cex,
+                        current_unroll_depth,
                     );
                     counterexamples.push(cex.clone());
                 }
@@ -283,10 +308,11 @@ fn add_counterexample_constraint(
     output_vars: &[Int],
     config: &CegisConfig,
     initial_values: &[i64],
+    unroll_depth: u32,
 ) {
     let n = initial_values.len();
     let ns = config.num_states as usize;
-    let unroll_steps = 5.min(config.max_steps as usize); // bounded unrolling
+    let unroll_steps = (unroll_depth as usize).min(config.max_steps as usize);
 
     // Create state variables for each agent at each step
     // agent_state[t][i] = state of agent i at time t
@@ -442,6 +468,8 @@ mod tests {
             max_iterations: 20,
             tests_per_iteration: 50,
             min_success_rate: 0.80,
+            initial_unroll_depth: 3,
+            max_unroll_depth: 8,
         };
 
         let result = synthesize_cegis(&config, |trace| trace.eventually_globally_agree());

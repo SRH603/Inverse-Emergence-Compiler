@@ -6,5 +6,6 @@
 //! - [`interpreter`] — multi-agent simulation engine that runs FSTs on topologies
 
 pub mod fst;
+pub mod gcp;
 pub mod interpreter;
 pub mod topology;

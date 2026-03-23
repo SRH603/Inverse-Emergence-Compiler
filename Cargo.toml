@@ -6,6 +6,7 @@ members = [
     "crates/verifier",
     "crates/runtime",
     "crates/iec-cli",
+    "crates/wasm-sim",
 ]
 resolver = "2"
 
